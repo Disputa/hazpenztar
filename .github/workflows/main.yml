@@ -21,6 +21,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: install dependencies
+            - name: upload mac build
+        uses: actions/upload-artifact@v4
+        with:
+          name: hazpenztar-mac
+          path: src-tauri/target/release/bundle
         run: npm install
 
       - name: build tauri
