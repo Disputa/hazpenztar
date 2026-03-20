@@ -76,25 +76,6 @@ const OWNER_PATTERNS = [
       "lits lászló",
       "lits"
     ]
-  },
-  {
-    apartmentId: 6,
-    canonical: "Janauschek Ernő",
-    patterns: [
-      "janauschek erno",
-      "janauschek ernő",
-      "janauschek"
-    ]
-  },
-  {
-    apartmentId: 7,
-    canonical: "Vörös Miklós",
-    patterns: [
-      "voros miklos",
-      "vörös miklós",
-      "voros",
-      "vörös"
-    ]
   }
 ];
 
@@ -103,12 +84,10 @@ function defaultState() {
     openingCash: 0,
     apartments: [
       { id: 1, name: "Lakás 1", owner: "Békéssy Klára", monthlyFee: 12000 },
-      { id: 2, name: "Lakás 2", owner: "Pócz János", monthlyFee: 9200 },
-      { id: 3, name: "Lakás 3", owner: "Kovács Sándor", monthlyFee: 7800 },
-      { id: 4, name: "Lakás 4", owner: "Komoróczki Gábor", monthlyFee: 6900 },
-      { id: 5, name: "Lakás 5", owner: "Lits László", monthlyFee: 4900 },
-      { id: 6, name: "Garázs 1", owner: "Janauschek Ernő", monthlyFee: 12000 },
-      { id: 7, name: "Garázs 2", owner: "Vörös Miklós", monthlyFee: 12000 }
+      { id: 2, name: "Lakás 2", owner: "Pócz János", monthlyFee: 12000 },
+      { id: 3, name: "Lakás 3", owner: "Kovács Sándor", monthlyFee: 12000 },
+      { id: 4, name: "Lakás 4", owner: "Komoróczki Gábor", monthlyFee: 12000 },
+      { id: 5, name: "Lakás 5", owner: "Lits László", monthlyFee: 12000 }
     ],
     entries: [],
     reportSettings: {
@@ -274,31 +253,21 @@ function entryMonthKey(entry) {
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-
     if (!raw) return defaultState();
-
-    try {
-      const test = JSON.parse(raw);
-      if (!test.entries || test.entries.length === 0) {
-        return defaultState();
-      }
-    } catch {
-      return defaultState();
-    }
 
     const parsed = JSON.parse(raw);
     const fallback = defaultState();
 
     return {
       openingCash: Number(parsed.openingCash || 0),
-      apartments: Array.isArray(parsed.apartments)
-  ? parsed.apartments.map((apt, index) => ({
-      id: Number(apt.id || index + 1),
-      name: normalizeText(apt.name || `Egység ${index + 1}`),
-      owner: normalizeOwnerName(apt.owner || ""),
-      monthlyFee: Math.max(0, Number(apt.monthlyFee || 0))
-    }))
-  : fallback.apartments,
+      apartments: Array.isArray(parsed.apartments) && parsed.apartments.length === 5
+        ? parsed.apartments.map((apt, index) => ({
+            id: Number(apt.id || index + 1),
+            name: normalizeText(apt.name || `Lakás ${index + 1}`),
+            owner: normalizeOwnerName(apt.owner || fallback.apartments[index].owner || ""),
+            monthlyFee: Math.max(0, Number(apt.monthlyFee || 0))
+          }))
+        : fallback.apartments,
       entries: Array.isArray(parsed.entries)
         ? parsed.entries.map(entry => ({
             ...entry,
@@ -324,25 +293,6 @@ function loadState() {
 }
 
 let state = loadState();
-async function hydrateInitialStateIfEmpty() {
-  if (!state || !state.apartments) return;
-
-  if (state.entries && state.entries.length > 0) return;
-
-  try {
-    const response = await fetch("initial_state_v3.json");
-    if (!response.ok) {
-      console.error("Nem található initial_state_v3.json");
-      return;
-    }
-
-    const initialState = await response.json();
-    state = initialState;
-    saveState();
-  } catch (error) {
-    console.error("Inicializáló betöltési hiba:", error);
-  }
-}
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -383,14 +333,9 @@ function totalExpenses() {
     .filter(e => e.type === "expense")
     .reduce((sum, e) => sum + Number(e.amount || 0), 0);
 }
-function totalCashIn() {
-  return activeEntries()
-    .filter(e => e.type === "cash_in")
-    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
-}
 
 function currentCash() {
-  return Number(state.openingCash + totalPayments() + totalCashIn() - totalExpenses());
+  return Number(state.openingCash) + totalPayments() - totalExpenses();
 }
 
 function paymentsForMonth(monthKey) {
@@ -572,33 +517,9 @@ function apartmentPaidForMonth(apartmentId, monthKey) {
   return paid;
 }
 
-function apartmentExpenseShare(apartmentId) {
-  const apartment = state.apartments.find(a => Number(a.id) === Number(apartmentId));
-  if (!apartment) return 0;
-
-  const isGarage = apartment.unitType === "garage";
-
-  const relevantExpenses = activeEntries().filter(e => {
-    if (e.type !== "expense") return false;
-
-    const scope = e.scope || "all";
-
-    if (scope === "all") return true;
-    if (scope === "apartments") return !isGarage;
-    if (scope === "garages") return isGarage;
-
-    return true;
-  });
-
-  const relevantUnits = state.apartments.filter(a => {
-    const unitIsGarage = a.unitType === "garage";
-    return unitIsGarage === isGarage;
-  });
-
-  const total = relevantExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  const count = relevantUnits.length || 1;
-
-  return total / count;
+function apartmentExpenseShare() {
+  const apartmentCount = state.apartments.length || 1;
+  return totalExpenses() / apartmentCount;
 }
 
 function apartmentBalance(apartmentId) {
@@ -1153,7 +1074,7 @@ function render() {
                       onchange="app.setMonthlyFee(${apt.id}, this.value)"
                     />
                   </td>
-                  <td>${formatFt(apartmentExpenseShare(apt.id))}</td>
+                  <td>${formatFt(apartmentExpenseShare())}</td>
                   <td>${formatFt(apartmentPaid(apt.id))}</td>
                   <td class="${apartmentBalance(apt.id) >= 0 ? "positive" : "negative"}">
                     ${formatFt(apartmentBalance(apt.id))}
@@ -1168,25 +1089,7 @@ function render() {
         </section>
 
         <section id="paymentsSection" class="app-section card">
-          <h2>Új befizetés</h2>		  
-		  <div class="card">
-  <h2>Házpénztári korrekció / egyéb bevétel</h2>
-  <div class="form-grid two">
-    <label>
-      Tétel megnevezése
-      <input id="cashCorrectionTitle" type="text" placeholder="pl. Teszt kiadás visszavezetése" />
-    </label>
-    <label>
-      Összeg
-      <input id="cashCorrectionAmount" type="number" min="0" step="1" placeholder="0" />
-    </label>
-    <label class="full">
-      Megjegyzés
-      <input id="cashCorrectionNote" type="text" placeholder="opcionális" />
-    </label>
-  </div>
-  <button onclick="app.addCashCorrection()">Korrekciós bevétel rögzítése</button>
-</div>
+          <h2>Új befizetés</h2>
 
           <div class="form-grid">
             <div>
@@ -1232,13 +1135,6 @@ function render() {
             </div>
 
             <div class="span-2">
-			<div>
-			<label>Érintett egységek</label>
-			<select id="expenseScope" class="text-input full">
-			<option value="apartments" selected>Csak lakások</option>
-			<option value="all">Minden egység</option>
-			<option value="garages">Csak garázsok</option>
-		</select>
               <label>Megjegyzés</label>
               <input id="expenseNote" class="text-input full" type="text" placeholder="opcionális" />
             </div>
@@ -1649,19 +1545,16 @@ const app = {
     setActiveSection("ledgerSection");
   },
 
-    async chooseReportFolder() {
+  async chooseReportFolder() {
     clearReportStatus();
 
     try {
-      const dialogApi =
-        window.__TAURI__?.dialog ||
-        window.__TAURI__?.plugin?.dialog;
-
-      if (!dialogApi || typeof dialogApi.open !== "function") {
+      const dialog = window.__TAURI__?.dialog;
+      if (!dialog || typeof dialog.open !== "function") {
         throw new Error("A Tauri dialog API nem érhető el.");
       }
 
-      const selected = await dialogApi.open({
+      const selected = await dialog.open({
         directory: true,
         multiple: false,
         title: "Havi report mappa kiválasztása"
@@ -1671,7 +1564,6 @@ const app = {
 
       state.reportSettings.targetFolder = String(selected);
       saveState();
-      render();
       setReportStatus("A report célmappa elmentve.", "success");
     } catch (error) {
       setReportStatus(`Mappaválasztási hiba: ${error.message || error}`, "error");
@@ -1782,7 +1674,6 @@ const app = {
     state.entries.push({
       id: crypto.randomUUID(),
       type: "payment",
-	  type: "cash_in",
       apartmentId,
       apartmentName: apt.name,
       amount,
@@ -1801,9 +1692,8 @@ const app = {
 
   addExpense() {
     const title = normalizeText(document.getElementById("expenseTitle")?.value || "");
-	const amount = Number(document.getElementById("expenseAmount")?.value || 0);
-	const note = normalizeText(document.getElementById("expenseNote")?.value || "");
-	const scope = document.getElementById("expenseScope")?.value || "all";
+    const amount = Number(document.getElementById("expenseAmount")?.value || 0);
+    const note = normalizeText(document.getElementById("expenseNote")?.value || "");
 
     if (!title) {
       alert("Adj meg kiadási tételnevet.");
@@ -1821,7 +1711,6 @@ const app = {
       title,
       amount,
       note,
-	  scope,
       archived: false,
       createdAt: nowStamp(),
       createdAtIso: nowIso()
@@ -1832,37 +1721,6 @@ const app = {
     applyActiveSection("expensesSection");
     setActiveSection("expensesSection");
   },
-  addCashCorrection() {
-  const title = normalizeText(document.getElementById("cashCorrectionTitle")?.value || "");
-  const amount = Number(document.getElementById("cashCorrectionAmount")?.value || 0);
-  const note = normalizeText(document.getElementById("cashCorrectionNote")?.value || "");
-
-  if (!title) {
-    alert("Adj meg bevételi tételnevet.");
-    return;
-  }
-
-  if (!amount || amount <= 0) {
-    alert("Adj meg érvényes összeget.");
-    return;
-  }
-
-  state.entries.push({
-    id: crypto.randomUUID(),
-    type: "cash_in",
-    title,
-    amount,
-    note,
-    archived: false,
-    createdAt: nowStamp(),
-    createdAtIso: nowIso()
-  });
-
-  saveState();
-  render();
-  applyActiveSection("cashbookSection");
-  setActiveSection("cashbookSection");
-},
 
   async previewImport() {
     clearImportStatus();
@@ -1896,13 +1754,12 @@ const app = {
     setActiveSection("importSection");
   },
 
-	commitImport() {
-	exportImportSafetyBackup();  // ← EZ AZ AUTOMATIKUS BACKUP
+  commitImport() {
+    if (!parsedImportRecords.length) {
+      setImportStatus("Nincs importálható előnézeti adat.", "error");
+      return;
+    }
 
-	if (!parsedImportRecords.length) {
-		setImportStatus("Nincs importálható előnézeti adat.", "error");
-		return;
-  }
     const backupFileName = exportImportSafetyBackup();
     const existing = new Set(state.entries.map(entryFingerprint));
     let added = 0;
@@ -2012,85 +1869,4 @@ window.app = app;
 console.log("Created by Deme Gábor © 2026");
 window.__deme_signature = "Created by Deme Gábor © 2026";
 
-await hydrateInitialStateIfEmpty();
 render();
-
-// 🎭 EASTER EGG – DEME
-(function () {
-  let typed = "";
-  const secret = "deme";
-
-  window.addEventListener("keydown", (e) => {
-    if (e.key.length === 1) {
-      typed += e.key.toLowerCase();
-      if (typed.length > secret.length) {
-        typed = typed.slice(-secret.length);
-      }
-
-      if (typed === secret) {
-        typed = "";
-        showDemeEasterEgg();
-      }
-    }
-  });
-
-  function showDemeEasterEgg() {
-    if (document.getElementById("deme-easter-egg")) return;
-
-    const overlay = document.createElement("div");
-    overlay.id = "deme-easter-egg";
-    overlay.style.position = "fixed";
-    overlay.style.inset = "0";
-    overlay.style.background = "rgba(0,0,0,0.82)";
-    overlay.style.zIndex = "999999";
-    overlay.style.display = "flex";
-    overlay.style.alignItems = "center";
-    overlay.style.justifyContent = "center";
-    overlay.style.flexDirection = "column";
-    overlay.style.fontFamily = "Arial, sans-serif";
-    overlay.style.color = "#ffffff";
-
-    const masks = document.createElement("div");
-    masks.textContent = "🎭";
-    masks.style.position = "absolute";
-    masks.style.top = "18px";
-    masks.style.left = "22px";
-    masks.style.fontSize = "28px";
-    masks.style.filter = "drop-shadow(0 0 8px rgba(255,255,255,0.35))";
-
-    const title = document.createElement("div");
-    title.innerHTML = "Created by Deme Gábor &copy; 2026";
-    title.style.fontSize = "32px";
-    title.style.fontWeight = "700";
-    title.style.textAlign = "center";
-    title.style.marginBottom = "20px";
-    title.style.letterSpacing = "0.5px";
-
-    const closeBtn = document.createElement("button");
-    closeBtn.textContent = "Bezárás";
-    closeBtn.style.padding = "12px 28px";
-    closeBtn.style.fontSize = "18px";
-    closeBtn.style.fontWeight = "700";
-    closeBtn.style.border = "none";
-    closeBtn.style.borderRadius = "10px";
-    closeBtn.style.cursor = "pointer";
-    closeBtn.style.background = "#f3c300";
-    closeBtn.style.color = "#111111";
-    closeBtn.style.boxShadow = "0 6px 20px rgba(0,0,0,0.35)";
-
-    closeBtn.addEventListener("click", () => {
-      overlay.remove();
-    });
-
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) {
-        overlay.remove();
-      }
-    });
-
-    overlay.appendChild(masks);
-    overlay.appendChild(title);
-    overlay.appendChild(closeBtn);
-    document.body.appendChild(overlay);
-  }
-})();

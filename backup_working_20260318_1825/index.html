@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="hu">
 <head>
   <meta charset="UTF-8" />
@@ -6,13 +6,21 @@
   <title>Társasház Óvoda utca 6/a házpénztár</title>
 </head>
 <body>
-
+ <body>
   <div id="app"></div>
 
-  <script src="./libs/xlsx.full.min.js"></script>
+  <div id="importSection">
+    <h2>Adatimport (XLSX)</h2>
+
+    <input type="file" id="xlsxFile" accept=".xlsx" />
+    <button onclick="previewXLSX()">Előnézet</button>
+
+    <div id="importPreview"></div>
+  </div>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="./libs/papaparse.min.js"></script>
   <script src="./importers/csv-import.js"></script>
   <script type="module" src="./main.js"></script>
-
 </body>
 </html>

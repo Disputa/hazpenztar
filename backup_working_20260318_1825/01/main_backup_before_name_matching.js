@@ -1,114 +1,37 @@
 // Created by Deme Gábor © 2026
 
-const STORAGE_KEY = "ovoda6a_hazpenztar_state_v3";
-const ACTIVE_SECTION_KEY = "ovoda6a_hazpenztar_active_section_v3";
+const STORAGE_KEY = "ovoda6a_hazpenztar_state_v2";
+const ACTIVE_SECTION_KEY = "ovoda6a_hazpenztar_active_section_v2";
 
-let reportStatus = { text: "", kind: "" };
-let importStatus = { text: "", kind: "" };
+let reportStatus = {
+  text: "",
+  kind: ""
+};
+
+let importStatus = {
+  text: "",
+  kind: ""
+};
 
 let parsedImportRecords = [];
 let lastImportFileName = "";
 let autoMonthlyCheckStarted = false;
 
-const OWNER_NAME_MAP = {
-  1: "Békéssy Klára",
-  2: "Pócz János",
-  3: "Fazekas Sándor",
-  4: "Komoróczki Gábor",
-  5: "Lits László"
+const OWNER_ALIASES = {
+  "nagy ruszten": "Komoróczki Gábor",
+  "komoroczki gabor": "Komoróczki Gábor",
+  "komoróczki gábor": "Komoróczki Gábor"
 };
-
-const OWNER_PATTERNS = [
-  {
-    apartmentId: 1,
-    canonical: "Békéssy Klára",
-    patterns: [
-      "bekessy klara",
-      "bekessy",
-      "bakessy klara",
-      "bakessy",
-      "békéssy klára",
-      "v ne bekessy klara",
-      "v-ne bekessy klara",
-      "vne bekessy klara",
-      "v ne bakessy klara",
-      "v-ne bakessy klara",
-      "vne bakessy klara"
-    ]
-  },
-  {
-    apartmentId: 2,
-    canonical: "Pócz János",
-    patterns: [
-      "pocz janos",
-      "pocz",
-      "pócz jános"
-    ]
-  },
-  {
-  apartmentId: 3,
-  canonical: "Kovács Sándor",
-  patterns: [
-    "kovacs sandor",
-    "kovács sándor",
-    "kovacs sandorne",
-    "kovács sándorné",
-    "kovacs",
-    "kovács"
-  ]
-},
-  {
-    apartmentId: 4,
-    canonical: "Komoróczki Gábor",
-    patterns: [
-      "komoroczki gabor",
-      "komoróczki gábor",
-      "komoroczki",
-      "nagy ruszten",
-      "ruszten"
-    ]
-  },
-  {
-    apartmentId: 5,
-    canonical: "Lits László",
-    patterns: [
-      "lits laszlo",
-      "lits lászló",
-      "lits"
-    ]
-  },
-  {
-    apartmentId: 6,
-    canonical: "Janauschek Ernő",
-    patterns: [
-      "janauschek erno",
-      "janauschek ernő",
-      "janauschek"
-    ]
-  },
-  {
-    apartmentId: 7,
-    canonical: "Vörös Miklós",
-    patterns: [
-      "voros miklos",
-      "vörös miklós",
-      "voros",
-      "vörös"
-    ]
-  }
-];
 
 function defaultState() {
   return {
     openingCash: 0,
     apartments: [
-      { id: 1, name: "Lakás 1", owner: "Békéssy Klára", monthlyFee: 12000 },
-      { id: 2, name: "Lakás 2", owner: "Pócz János", monthlyFee: 9200 },
-      { id: 3, name: "Lakás 3", owner: "Kovács Sándor", monthlyFee: 7800 },
-      { id: 4, name: "Lakás 4", owner: "Komoróczki Gábor", monthlyFee: 6900 },
-      { id: 5, name: "Lakás 5", owner: "Lits László", monthlyFee: 4900 },
-      { id: 6, name: "Garázs 1", owner: "Janauschek Ernő", monthlyFee: 12000 },
-      { id: 7, name: "Garázs 2", owner: "Vörös Miklós", monthlyFee: 12000 }
+      { id: 1, name: "Lakás 1", owner: "", monthlyFee: 12000 },
+      { id: 2, name: "Lakás 2", owner: "", monthlyFee: 12000 },
+      { id: 3, name: "Lakás 3", owner: "", monthlyFee: 12000 },
+      { id: 4, name: "Lakás 4", owner: "", monthlyFee: 12000 },
+      { id: 5, name: "Lakás 5", owner: "", monthlyFee: 12000 }
     ],
     entries: [],
     reportSettings: {
@@ -136,32 +59,131 @@ function stripAccents(value) {
 function normalizeOwnerName(value) {
   const clean = normalizeText(value);
   if (!clean) return "";
-
-  const normalized = stripAccents(clean);
-
-  for (const owner of OWNER_PATTERNS) {
-    if (owner.patterns.some(pattern => stripAccents(pattern) === normalized)) {
-      return owner.canonical;
-    }
-  }
-
-  return clean;
+  return OWNER_ALIASES[stripAccents(clean)] || clean;
 }
 
-function normalizeMatchText(value) {
-  return stripAccents(String(value ?? ""))
-    .replace(/[|;,/()+-]+/g, " ")
-    .replace(/\b(kk|kozos|közös|kozoskoltseg|közösköltség|kozos koltseg|közös költség)\b/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultState();
+
+    const parsed = JSON.parse(raw);
+    const fallback = defaultState();
+
+    return {
+      openingCash: Number(parsed.openingCash || 0),
+      apartments: Array.isArray(parsed.apartments) && parsed.apartments.length === 5
+        ? parsed.apartments.map((apt, index) => ({
+            id: Number(apt.id || index + 1),
+            name: normalizeText(apt.name || `Lakás ${index + 1}`),
+            owner: normalizeOwnerName(apt.owner || ""),
+            monthlyFee: Number(apt.monthlyFee || 0)
+          }))
+        : fallback.apartments,
+      entries: Array.isArray(parsed.entries)
+        ? parsed.entries.map(entry => ({
+            ...entry,
+            archived: Boolean(entry.archived)
+          }))
+        : [],
+      reportSettings: {
+        targetFolder: String(parsed?.reportSettings?.targetFolder || ""),
+        autoMonthlyEnabled: typeof parsed?.reportSettings?.autoMonthlyEnabled === "boolean"
+          ? parsed.reportSettings.autoMonthlyEnabled
+          : true,
+        lastGeneratedMonth: String(parsed?.reportSettings?.lastGeneratedMonth || "")
+      },
+      uiSettings: {
+        showArchivedEntries: typeof parsed?.uiSettings?.showArchivedEntries === "boolean"
+          ? parsed.uiSettings.showArchivedEntries
+          : false
+      }
+    };
+  } catch {
+    return defaultState();
+  }
+}
+
+let state = loadState();
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function getActiveSection() {
+  return localStorage.getItem(ACTIVE_SECTION_KEY) || "overviewSection";
+}
+
+function setActiveSection(sectionId) {
+  localStorage.setItem(ACTIVE_SECTION_KEY, sectionId);
+}
+
+function formatFt(value) {
+	function sanitizeFileNamePart(value) {
+		function buildImportBackupFileName(sourceFileName) {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = pad2(now.getMonth() + 1);
+  const dd = pad2(now.getDate());
+
+  return `${sanitizeFileNamePart(sourceFileName || "import")}_import_elott_${yyyy}_${mm}_${dd}.json`;
+}
+  return String(value ?? "")
+    .trim()
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+}
+
+function buildImportBackupFileName(sourceFileName) {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = pad2(now.getMonth() + 1);
+  const dd = pad2(now.getDate());
+
+  return `${sanitizeFileNamePart(sourceFileName || "import")}_import_elott_${yyyy}_${mm}_${dd}.json`;
+}
+  return new Intl.NumberFormat("hu-HU").format(Number(value || 0)) + " Ft";
+}
+
+function exportImportSafetyBackup() {
+  const backup = {
+    exportedAt: nowStamp(),
+    exportedAtIso: nowIso(),
+    app: "Társasház Óvoda utca 6/a házpénztár",
+    version: "V2.0",
+    reason: "Automatikus backup import előtt",
+    sourceImportFile: lastImportFileName || "",
+    data: state
+  };
+
+  const fileName = buildImportBackupFileName(lastImportFileName);
+
+  const blob = new Blob(
+    [JSON.stringify(backup, null, 2)],
+    { type: "application/json;charset=utf-8" }
+  );
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  setTimeout(function () {
+    URL.revokeObjectURL(url);
+  }, 1000);
+
+  return fileName;
 }
 
 function pad2(value) {
   return String(value).padStart(2, "0");
-}
-
-function formatFt(value) {
-  return new Intl.NumberFormat("hu-HU").format(Number(value || 0)) + " Ft";
 }
 
 function sanitizeFileNamePart(value) {
@@ -175,7 +197,11 @@ function sanitizeFileNamePart(value) {
 
 function buildImportBackupFileName(sourceFileName) {
   const now = new Date();
-  return `${sanitizeFileNamePart(sourceFileName || "import")}_import_elott_${now.getFullYear()}_${pad2(now.getMonth() + 1)}_${pad2(now.getDate())}.json`;
+  const yyyy = now.getFullYear();
+  const mm = pad2(now.getMonth() + 1);
+  const dd = pad2(now.getDate());
+
+  return `${sanitizeFileNamePart(sourceFileName || "import")}_import_elott_${yyyy}_${mm}_${dd}.json`;
 }
 
 function nowIso() {
@@ -187,12 +213,14 @@ function nowStamp() {
 }
 
 function monthKeyFromDate(date) {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
+  const year = date.getFullYear();
+  const month = pad2(date.getMonth() + 1);
+  return `${year}-${month}`;
 }
 
 function monthLabelHu(monthKey) {
-  const [year, month] = String(monthKey).split("-").map(Number);
-  const date = new Date(year, (month || 1) - 1, 1);
+  const [year, month] = monthKey.split("-").map(Number);
+  const date = new Date(year, month - 1, 1);
   return date.toLocaleDateString("hu-HU", { year: "numeric", month: "long" });
 }
 
@@ -256,12 +284,12 @@ function formatImportIso(dateValue) {
 }
 
 function entryDate(entry) {
-  if (entry?.createdAtIso) {
+  if (entry.createdAtIso) {
     const isoDate = new Date(entry.createdAtIso);
     if (!Number.isNaN(isoDate.getTime())) return isoDate;
   }
 
-  const parsedHu = parseHungarianDateTime(entry?.createdAt);
+  const parsedHu = parseHungarianDateTime(entry.createdAt);
   if (parsedHu) return parsedHu;
 
   return new Date(0);
@@ -269,91 +297,6 @@ function entryDate(entry) {
 
 function entryMonthKey(entry) {
   return monthKeyFromDate(entryDate(entry));
-}
-
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-
-    if (!raw) return defaultState();
-
-    try {
-      const test = JSON.parse(raw);
-      if (!test.entries || test.entries.length === 0) {
-        return defaultState();
-      }
-    } catch {
-      return defaultState();
-    }
-
-    const parsed = JSON.parse(raw);
-    const fallback = defaultState();
-
-    return {
-      openingCash: Number(parsed.openingCash || 0),
-      apartments: Array.isArray(parsed.apartments)
-  ? parsed.apartments.map((apt, index) => ({
-      id: Number(apt.id || index + 1),
-      name: normalizeText(apt.name || `Egység ${index + 1}`),
-      owner: normalizeOwnerName(apt.owner || ""),
-      monthlyFee: Math.max(0, Number(apt.monthlyFee || 0))
-    }))
-  : fallback.apartments,
-      entries: Array.isArray(parsed.entries)
-        ? parsed.entries.map(entry => ({
-            ...entry,
-            archived: Boolean(entry.archived)
-          }))
-        : [],
-      reportSettings: {
-        targetFolder: String(parsed?.reportSettings?.targetFolder || ""),
-        autoMonthlyEnabled: typeof parsed?.reportSettings?.autoMonthlyEnabled === "boolean"
-          ? parsed.reportSettings.autoMonthlyEnabled
-          : true,
-        lastGeneratedMonth: String(parsed?.reportSettings?.lastGeneratedMonth || "")
-      },
-      uiSettings: {
-        showArchivedEntries: typeof parsed?.uiSettings?.showArchivedEntries === "boolean"
-          ? parsed.uiSettings.showArchivedEntries
-          : false
-      }
-    };
-  } catch {
-    return defaultState();
-  }
-}
-
-let state = loadState();
-async function hydrateInitialStateIfEmpty() {
-  if (!state || !state.apartments) return;
-
-  if (state.entries && state.entries.length > 0) return;
-
-  try {
-    const response = await fetch("initial_state_v3.json");
-    if (!response.ok) {
-      console.error("Nem található initial_state_v3.json");
-      return;
-    }
-
-    const initialState = await response.json();
-    state = initialState;
-    saveState();
-  } catch (error) {
-    console.error("Inicializáló betöltési hiba:", error);
-  }
-}
-
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
-
-function getActiveSection() {
-  return localStorage.getItem(ACTIVE_SECTION_KEY) || "overviewSection";
-}
-
-function setActiveSection(sectionId) {
-  localStorage.setItem(ACTIVE_SECTION_KEY, sectionId);
 }
 
 function activeEntries() {
@@ -364,6 +307,34 @@ function archivedEntries() {
   return state.entries.filter(entry => entry.archived);
 }
 
+function totalPayments() {
+  return activeEntries()
+    .filter(e => e.type === "payment")
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+}
+
+function totalExpenses() {
+  return activeEntries()
+    .filter(e => e.type === "expense")
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+}
+
+function currentCash() {
+  return Number(state.openingCash) + totalPayments() - totalExpenses();
+}
+
+function apartmentPaid(apartmentId) {
+  return activeEntries()
+    .filter(e => e.type === "payment" && Number(e.apartmentId) === Number(apartmentId))
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+}
+
+function apartmentBalance(apartmentId) {
+  const apt = state.apartments.find(a => Number(a.id) === Number(apartmentId));
+  if (!apt) return 0;
+  return apartmentPaid(apartmentId) - Number(apt.monthlyFee || 0);
+}
+
 function sortedEntries() {
   return [...activeEntries()].sort((a, b) => entryDate(b) - entryDate(a));
 }
@@ -372,237 +343,63 @@ function sortedArchivedEntries() {
   return [...archivedEntries()].sort((a, b) => entryDate(b) - entryDate(a));
 }
 
-function totalPayments() {
-  return activeEntries()
-    .filter(e => e.type === "payment")
-    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
-}
-
-function totalExpenses() {
-  return activeEntries()
-    .filter(e => e.type === "expense")
-    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
-}
-function totalCashIn() {
-  return activeEntries()
-    .filter(e => e.type === "cash_in")
-    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
-}
-
-function currentCash() {
-  return Number(state.openingCash + totalPayments() + totalCashIn() - totalExpenses());
+function entriesForMonth(monthKey) {
+  return activeEntries().filter(entry => entryMonthKey(entry) === monthKey);
 }
 
 function paymentsForMonth(monthKey) {
-  return activeEntries()
-    .filter(e => e.type === "payment" && entryMonthKey(e) === monthKey)
-    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  return entriesForMonth(monthKey)
+    .filter(entry => entry.type === "payment")
+    .reduce((sum, entry) => sum + Number(entry.amount), 0);
 }
 
 function expensesForMonth(monthKey) {
+  return entriesForMonth(monthKey)
+    .filter(entry => entry.type === "expense")
+    .reduce((sum, entry) => sum + Number(entry.amount), 0);
+}
+
+function apartmentPaidForMonth(apartmentId, monthKey) {
   return activeEntries()
-    .filter(e => e.type === "expense" && entryMonthKey(e) === monthKey)
-    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    .filter(entry =>
+      entry.type === "payment" &&
+      Number(entry.apartmentId) === Number(apartmentId) &&
+      entryMonthKey(entry) === monthKey
+    )
+    .reduce((sum, entry) => sum + Number(entry.amount), 0);
 }
 
 function cashBeforeMonth(monthKey) {
-  return Number(state.openingCash) + activeEntries()
-    .filter(e => entryMonthKey(e) < monthKey)
-    .reduce((sum, e) => {
-      return sum + (e.type === "payment" ? Number(e.amount || 0) : -Number(e.amount || 0));
-    }, 0);
+  const [year, month] = monthKey.split("-").map(Number);
+  const monthStart = new Date(year, month - 1, 1, 0, 0, 0, 0);
+
+  let balance = Number(state.openingCash);
+
+  for (const entry of activeEntries()) {
+    const date = entryDate(entry);
+    if (date < monthStart) {
+      if (entry.type === "payment") {
+        balance += Number(entry.amount);
+      } else if (entry.type === "expense") {
+        balance -= Number(entry.amount);
+      }
+    }
+  }
+
+  return balance;
 }
 
 function cashAfterMonth(monthKey) {
   return cashBeforeMonth(monthKey) + paymentsForMonth(monthKey) - expensesForMonth(monthKey);
 }
 
-function detectOwnersInText(text) {
-  const normalized = normalizeMatchText(text);
-  if (!normalized) return [];
-
-  const matches = [];
-
-  for (const owner of OWNER_PATTERNS) {
-    if (owner.patterns.some(pattern => normalized.includes(stripAccents(pattern)))) {
-      matches.push(owner.apartmentId);
-    }
-  }
-
-  return [...new Set(matches)];
-}
-
-function detectApartmentIdByNumberText(text) {
-  const normalized = normalizeMatchText(text);
-
-  const patterns = [
-    { regex: /\b1\s*\.?\s*lakas\b|\blakas\s*1\b|\b1\s*\.?\s*ajto\b|\b1\s*\.?\s*lak\b/, apartmentId: 1 },
-    { regex: /\b2\s*\.?\s*lakas\b|\blakas\s*2\b|\b2\s*\.?\s*ajto\b|\b2\s*\.?\s*lak\b/, apartmentId: 2 },
-    { regex: /\b3\s*\.?\s*lakas\b|\blakas\s*3\b|\b3\s*\.?\s*ajto\b|\b3\s*\.?\s*lak\b/, apartmentId: 3 },
-    { regex: /\b4\s*\.?\s*lakas\b|\blakas\s*4\b|\b4\s*\.?\s*ajto\b|\b4\s*\.?\s*lak\b/, apartmentId: 4 },
-    { regex: /\b5\s*\.?\s*lakas\b|\blakas\s*5\b|\b5\s*\.?\s*ajto\b|\b5\s*\.?\s*lak\b/, apartmentId: 5 }
-  ];
-
-  const found = patterns.find(item => item.regex.test(normalized));
-  return found ? found.apartmentId : null;
-}
-
-function detectMultipleOwners(text) {
-  return detectOwnersInText(text);
-}
-
-function detectApartmentIdFromEntry(entry) {
-  if (entry && Number(entry.apartmentId)) {
-    return Number(entry.apartmentId);
-  }
-
-  const text = [
-    entry?.apartmentName,
-    entry?.note,
-    entry?.title,
-    entry?.details
-  ].filter(Boolean).join(" ");
-
-  const directOwners = detectOwnersInText(text);
-  if (directOwners.length === 1) {
-    return directOwners[0];
-  }
-
-  const byNumber = detectApartmentIdByNumberText(text);
-  if (byNumber) return byNumber;
-
-  const normalized = normalizeMatchText(text);
-
-  for (const apt of state.apartments) {
-    const owner = normalizeMatchText(apt.owner || "");
-    const name = normalizeMatchText(apt.name || "");
-    if ((owner && normalized.includes(owner)) || (name && normalized.includes(name))) {
-      return Number(apt.id);
-    }
-  }
-
-  return null;
-}
-
-function getElapsedMonths() {
-  const entries = activeEntries();
-  if (!entries.length) return 1;
-
-  let minDate = entryDate(entries[0]);
-  let maxDate = entryDate(entries[0]);
-
-  for (const entry of entries) {
-    const d = entryDate(entry);
-    if (d < minDate) minDate = d;
-    if (d > maxDate) maxDate = d;
-  }
-
-  const months =
-    (maxDate.getFullYear() - minDate.getFullYear()) * 12 +
-    (maxDate.getMonth() - minDate.getMonth()) +
-    1;
-
-  return Math.max(1, months);
-}
-
-function isBekessyApartment(apartmentId) {
-  const apt = state.apartments.find(a => Number(a.id) === Number(apartmentId));
-  if (!apt) return false;
-  return normalizeMatchText(apt.owner).includes("bekessy");
-}
-
-function apartmentPaid(apartmentId) {
-  let paid = 0;
-
-  for (const e of activeEntries()) {
-    if (e.type !== "payment") continue;
-
-    const text = [e.apartmentName, e.note, e.title, e.details].filter(Boolean).join(" ");
-    const owners = detectMultipleOwners(text);
-
-    if (owners.length > 1) {
-      const share = Number(e.amount || 0) / owners.length;
-      if (owners.includes(Number(apartmentId))) {
-        paid += share;
-      }
-      continue;
-    }
-
-    const detected = detectApartmentIdFromEntry(e);
-    if (Number(detected) === Number(apartmentId)) {
-      paid += Number(e.amount || 0);
-    }
-  }
-
-  if (isBekessyApartment(apartmentId)) {
-    paid += Number(state.apartments.find(a => Number(a.id) === Number(apartmentId))?.monthlyFee || 0) * getElapsedMonths();
-  }
-
-  return paid;
-}
-
-function apartmentPaidForMonth(apartmentId, monthKey) {
-  let paid = 0;
-
-  for (const e of activeEntries()) {
-    if (e.type !== "payment") continue;
-    if (entryMonthKey(e) !== monthKey) continue;
-
-    const text = [e.apartmentName, e.note, e.title, e.details].filter(Boolean).join(" ");
-    const owners = detectMultipleOwners(text);
-
-    if (owners.length > 1) {
-      const share = Number(e.amount || 0) / owners.length;
-      if (owners.includes(Number(apartmentId))) {
-        paid += share;
-      }
-      continue;
-    }
-
-    const detected = detectApartmentIdFromEntry(e);
-    if (Number(detected) === Number(apartmentId)) {
-      paid += Number(e.amount || 0);
-    }
-  }
-
-  if (isBekessyApartment(apartmentId)) {
-    paid += Number(state.apartments.find(a => Number(a.id) === Number(apartmentId))?.monthlyFee || 0);
-  }
-
-  return paid;
-}
-
-function apartmentExpenseShare(apartmentId) {
-  const apartment = state.apartments.find(a => Number(a.id) === Number(apartmentId));
-  if (!apartment) return 0;
-
-  const isGarage = apartment.unitType === "garage";
-
-  const relevantExpenses = activeEntries().filter(e => {
-    if (e.type !== "expense") return false;
-
-    const scope = e.scope || "all";
-
-    if (scope === "all") return true;
-    if (scope === "apartments") return !isGarage;
-    if (scope === "garages") return isGarage;
-
-    return true;
-  });
-
-  const relevantUnits = state.apartments.filter(a => {
-    const unitIsGarage = a.unitType === "garage";
-    return unitIsGarage === isGarage;
-  });
-
-  const total = relevantExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  const count = relevantUnits.length || 1;
-
-  return total / count;
-}
-
-function apartmentBalance(apartmentId) {
-  return apartmentPaid(apartmentId) - apartmentExpenseShare(apartmentId);
+function escapeHtml(text) {
+  return String(text ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function setReportStatus(text, kind = "") {
@@ -623,47 +420,6 @@ function clearImportStatus() {
   importStatus = { text: "", kind: "" };
 }
 
-function escapeHtml(text) {
-  return String(text ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function exportImportSafetyBackup() {
-  const backup = {
-    exportedAt: nowStamp(),
-    exportedAtIso: nowIso(),
-    app: "Társasház Óvoda utca 6/a házpénztár",
-    version: "V3.0",
-    reason: "Automatikus backup import előtt",
-    sourceImportFile: lastImportFileName || "",
-    data: state
-  };
-
-  const fileName = buildImportBackupFileName(lastImportFileName);
-  const blob = new Blob([JSON.stringify(backup, null, 2)], {
-    type: "application/json;charset=utf-8"
-  });
-
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-
-  setTimeout(function () {
-    URL.revokeObjectURL(url);
-  }, 1000);
-
-  return fileName;
-}
-
 function buildSummaryReportText(monthKey) {
   const lines = [];
   const monthEntries = sortedEntries().filter(entry => entryMonthKey(entry) === monthKey);
@@ -672,11 +428,13 @@ function buildSummaryReportText(monthKey) {
   lines.push("HAVI HÁZPÉNZTÁR REPORT");
   lines.push(`${monthLabelHu(monthKey)} (${monthKey})`);
   lines.push("");
+  lines.push(`Hónap: ${monthLabelHu(monthKey)} (${monthKey})`);
   lines.push(`Generálva: ${nowStamp()}`);
-  lines.push(`Nyitó egyenleg: ${formatFt(cashBeforeMonth(monthKey))}`);
-  lines.push(`Befizetések: ${formatFt(paymentsForMonth(monthKey))}`);
-  lines.push(`Kiadások: ${formatFt(expensesForMonth(monthKey))}`);
-  lines.push(`Záró egyenleg: ${formatFt(cashAfterMonth(monthKey))}`);
+  lines.push("");
+  lines.push(`Nyitó egyenleg a hónap elején: ${formatFt(cashBeforeMonth(monthKey))}`);
+  lines.push(`Havi befizetések összesen: ${formatFt(paymentsForMonth(monthKey))}`);
+  lines.push(`Havi kiadások összesen: ${formatFt(expensesForMonth(monthKey))}`);
+  lines.push(`Záró egyenleg a hónap végén: ${formatFt(cashAfterMonth(monthKey))}`);
   lines.push("");
   lines.push("LAKÁSONKÉNTI ÖSSZESÍTÉS");
   lines.push("");
@@ -684,21 +442,28 @@ function buildSummaryReportText(monthKey) {
   for (const apt of state.apartments) {
     const paid = apartmentPaidForMonth(apt.id, monthKey);
     const monthlyBalance = paid - Number(apt.monthlyFee || 0);
-    lines.push(`${apt.id}. ${apt.name} | ${apt.owner || "-"} | Befizetve: ${formatFt(paid)} | Havi egyenleg: ${formatFt(monthlyBalance)}`);
+
+    lines.push(
+      `${apt.id}. ${apt.name} | Havi közös költség: ${formatFt(apt.monthlyFee)} | Befizetve: ${formatFt(paid)} | Havi egyenleg: ${formatFt(monthlyBalance)}`
+    );
   }
 
   lines.push("");
-  lines.push("TÉTELEK");
+  lines.push("HAVI PÉNZTÁRNAPLÓ");
   lines.push("");
 
-  if (!monthEntries.length) {
+  if (monthEntries.length === 0) {
     lines.push("Ebben a hónapban nincs rögzített tétel.");
   } else {
     for (const entry of monthEntries) {
       if (entry.type === "payment") {
-        lines.push(`${entry.createdAt} | BEFIZETÉS | ${entry.apartmentName || "-"} | ${entry.note || "-"} | +${formatFt(entry.amount)}`);
+        lines.push(
+          `${entry.createdAt} | BEFIZETÉS | ${entry.apartmentName} | ${entry.monthLabel || "-"} | ${entry.note || "-"} | +${formatFt(entry.amount)}`
+        );
       } else {
-        lines.push(`${entry.createdAt} | KIADÁS | ${entry.title || "-"} | ${entry.note || "-"} | -${formatFt(entry.amount)}`);
+        lines.push(
+          `${entry.createdAt} | KIADÁS | ${entry.title} | ${entry.note || "-"} | -${formatFt(entry.amount)}`
+        );
       }
     }
   }
@@ -707,15 +472,15 @@ function buildSummaryReportText(monthKey) {
 }
 
 function buildApartmentReportText(apartment, monthKey) {
+  const monthPayments = sortedEntries().filter(entry =>
+    entry.type === "payment" &&
+    Number(entry.apartmentId) === Number(apartment.id) &&
+    entryMonthKey(entry) === monthKey
+  );
+
   const paid = apartmentPaidForMonth(apartment.id, monthKey);
   const monthlyFee = Number(apartment.monthlyFee || 0);
   const monthlyBalance = paid - monthlyFee;
-
-  const monthPayments = sortedEntries().filter(entry =>
-    entry.type === "payment" &&
-    entryMonthKey(entry) === monthKey &&
-    Number(detectApartmentIdFromEntry(entry)) === Number(apartment.id)
-  );
 
   const lines = [];
   lines.push("TÁRSASHÁZ ÓVODA UTCA 6/A");
@@ -723,17 +488,24 @@ function buildApartmentReportText(apartment, monthKey) {
   lines.push(`${monthLabelHu(monthKey)} (${monthKey})`);
   lines.push("");
   lines.push(`Lakás: ${apartment.name}`);
-  lines.push(`Tulajdonos: ${apartment.owner || "-"}`);
+  lines.push(`Lakás azonosító: ${apartment.id}`);
+  lines.push(`Hónap: ${monthLabelHu(monthKey)} (${monthKey})`);
+  lines.push(`Generálva: ${nowStamp()}`);
+  lines.push("");
   lines.push(`Havi közös költség: ${formatFt(monthlyFee)}`);
   lines.push(`Ebben a hónapban befizetve: ${formatFt(paid)}`);
   lines.push(`Havi egyenleg: ${formatFt(monthlyBalance)}`);
   lines.push("");
+  lines.push("HAVI BEFIZETÉSI TÉTELEK");
+  lines.push("");
 
-  if (!monthPayments.length) {
-    lines.push("Ebben a hónapban nincs befizetés.");
+  if (monthPayments.length === 0) {
+    lines.push("Ebben a hónapban nincs befizetés rögzítve ehhez a lakáshoz.");
   } else {
     for (const entry of monthPayments) {
-      lines.push(`${entry.createdAt} | ${entry.note || "-"} | ${formatFt(entry.amount)}`);
+      lines.push(
+        `${entry.createdAt} | ${entry.monthLabel || "-"} | ${entry.note || "-"} | ${formatFt(entry.amount)}`
+      );
     }
   }
 
@@ -741,11 +513,13 @@ function buildApartmentReportText(apartment, monthKey) {
 }
 
 function buildMonthlyReports(monthKey) {
-  const reports = [{
+  const reports = [];
+
+  reports.push({
     filename: `hazpenztar_osszefoglalo_${monthKey}.pdf`,
     title: `Házpénztár összefoglaló - ${monthLabelHu(monthKey)}`,
     content: buildSummaryReportText(monthKey)
-  }];
+  });
 
   for (const apt of state.apartments) {
     reports.push({
@@ -759,7 +533,7 @@ function buildMonthlyReports(monthKey) {
 }
 
 function renderEntryRows(entries, archivedMode = false) {
-  if (!entries.length) {
+  if (entries.length === 0) {
     return `
       <tr>
         <td colspan="5">${archivedMode ? "Még nincs archivált tétel." : "Még nincs rögzített tétel."}</td>
@@ -773,8 +547,8 @@ function renderEntryRows(entries, archivedMode = false) {
       <td>${entry.type === "payment" ? "Befizetés" : "Kiadás"}</td>
       <td>
         ${entry.type === "payment"
-          ? `<strong>${escapeHtml(entry.apartmentName || "-")}</strong>${entry.note ? ` – ${escapeHtml(entry.note)}` : ""}`
-          : `<strong>${escapeHtml(entry.title || "-")}</strong>${entry.note ? ` – ${escapeHtml(entry.note)}` : ""}`
+          ? `<strong>${escapeHtml(entry.apartmentName)}</strong> – ${escapeHtml(entry.monthLabel || "")}${entry.note ? ` – ${escapeHtml(entry.note)}` : ""}`
+          : `<strong>${escapeHtml(entry.title)}</strong>${entry.note ? ` – ${escapeHtml(entry.note)}` : ""}`
         }
       </td>
       <td class="${entry.type === "payment" ? "positive" : "negative"}">
@@ -799,10 +573,9 @@ function getRowValue(row, candidates) {
 function parseAmount(value) {
   const cleaned = String(value ?? "")
     .replace(/\s/g, "")
-    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(/\./g, "")
     .replace(/,/g, ".")
     .replace(/[^\d.-]/g, "");
-
   const amount = Number(cleaned);
   return Number.isFinite(amount) ? Math.abs(amount) : 0;
 }
@@ -822,42 +595,21 @@ function detectImportType(rawType, category, note) {
 }
 
 function findApartmentByOwner(ownerName) {
-  const normalized = normalizeMatchText(ownerName);
+  const normalized = stripAccents(normalizeOwnerName(ownerName));
   if (!normalized) return null;
-
-  for (const owner of OWNER_PATTERNS) {
-    if (owner.patterns.some(pattern => normalized.includes(stripAccents(pattern)))) {
-      return state.apartments.find(apt => Number(apt.id) === Number(owner.apartmentId)) || null;
-    }
-  }
-
-  return null;
+  return state.apartments.find(apt => stripAccents(apt.owner || "") === normalized) || null;
 }
 
-function findApartmentByText(rawText) {
-  const normalized = normalizeMatchText(rawText);
-  if (!normalized) return null;
+function findApartmentByText(rawApartment) {
+  const txt = stripAccents(rawApartment);
+  if (!txt) return null;
 
-  const byOwner = findApartmentByOwner(rawText);
-  if (byOwner) return byOwner;
-
-  const byNumber = detectApartmentIdByNumberText(rawText);
-  if (byNumber) {
-    return state.apartments.find(apt => Number(apt.id) === Number(byNumber)) || null;
+  const numberMatch = txt.match(/\b([1-5])\b/);
+  if (numberMatch) {
+    return state.apartments.find(apt => Number(apt.id) === Number(numberMatch[1])) || null;
   }
 
-  const byName = state.apartments.find(apt => {
-    return normalized.includes(normalizeMatchText(apt.name)) || normalizeMatchText(apt.name).includes(normalized);
-  });
-
-  return byName || null;
-}
-
-function buildSplitLabel(ownerIds) {
-  const names = ownerIds
-    .map(id => OWNER_NAME_MAP[id] || `Lakás ${id}`)
-    .join(", ");
-  return `Megosztott befizetés: ${names}`;
+  return state.apartments.find(apt => stripAccents(apt.name).includes(txt)) || null;
 }
 
 function mapImportedRow(row) {
@@ -874,39 +626,20 @@ function mapImportedRow(row) {
 
   if (!normalizedDate || !amount) return null;
 
-  const type = detectImportType(rawType, category, note);
-  const combinedText = [owner, apartmentText, category, note].filter(Boolean).join(" ");
-  const detectedOwners = detectOwnersInText(combinedText);
-
-  if (type === "payment" && detectedOwners.length > 1) {
-    return {
-      mode: "payment-split",
-	  needsReview: true,
-      apartmentIds: detectedOwners,
-      apartmentName: buildSplitLabel(detectedOwners),
-      amount: Math.abs(amount),
-      monthLabel: monthLabelHu(monthKeyFromDate(parseImportDate(normalizedDate))),
-      note: [owner, apartmentText, category, note].filter(Boolean).join(" | "),
-      createdAt: formatImportStamp(normalizedDate),
-      createdAtIso: formatImportIso(normalizedDate),
-      archived: false
-    };
-  }
-
   const apartment =
-  detectedOwners.length === 1
-    ? state.apartments.find(a => Number(a.id) === detectedOwners[0]) || null
-    : (findApartmentByOwner(owner) || findApartmentByText(apartmentText));
+    findApartmentByOwner(owner) ||
+    findApartmentByText(apartmentText);
+
+  const type = detectImportType(rawType, category, note);
 
   if (type === "payment") {
     return {
       mode: "payment",
-	  needsReview: !apartment,
       apartmentId: apartment ? apartment.id : null,
-      apartmentName: apartment ? apartment.name : "Kézi ellenőrzés szükséges",
+      apartmentName: apartment ? apartment.name : (owner || apartmentText || "Importált befizetés"),
       amount: Math.abs(amount),
       monthLabel: monthLabelHu(monthKeyFromDate(parseImportDate(normalizedDate))),
-      note: [owner, apartmentText, category, note].filter(Boolean).join(" | "),
+      note: [owner, category, note].filter(Boolean).join(" | "),
       createdAt: formatImportStamp(normalizedDate),
       createdAtIso: formatImportIso(normalizedDate),
       archived: false
@@ -951,35 +684,37 @@ async function readSpreadsheetRows(file) {
 
   const buffer = await file.arrayBuffer();
   const wb = XLSX.read(buffer, { type: "array" });
+  console.log("SHEETS:", wb.SheetNames);
   const result = [];
 
   function normalizeExcelDate(value, fallbackYear = null) {
-    if (value instanceof Date && !Number.isNaN(value.getTime())) {
-      return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
-    }
-
-    if (typeof value === "number" && Number.isFinite(value)) {
-      const parsed = XLSX.SSF.parse_date_code(value);
-      if (parsed && parsed.y && parsed.m && parsed.d) {
-        return `${parsed.y}-${pad2(parsed.m)}-${pad2(parsed.d)}`;
-      }
-    }
-
-    const txt = normalizeText(value);
-    if (!txt) return "";
-
-    let match = txt.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})\.?$/);
-    if (match) {
-      return `${match[3]}-${pad2(match[2])}-${pad2(match[1])}`;
-    }
-
-    match = txt.match(/^(\d{1,2})\.(\d{1,2})\.?$/);
-    if (match && fallbackYear) {
-      return `${fallbackYear}-${pad2(match[2])}-${pad2(match[1])}`;
-    }
-
-    return normalizeDateOnly(txt);
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
   }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed && parsed.y && parsed.m && parsed.d) {
+      return `${parsed.y}-${pad2(parsed.m)}-${pad2(parsed.d)}`;
+    }
+  }
+
+  const txt = normalizeText(value);
+
+  if (!txt) return "";
+
+  let match = txt.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})\.?$/);
+  if (match) {
+    return `${match[3]}-${pad2(match[2])}-${pad2(match[1])}`;
+  }
+
+  match = txt.match(/^(\d{1,2})\.(\d{1,2})\.?$/);
+  if (match && fallbackYear) {
+    return `${fallbackYear}-${pad2(match[2])}-${pad2(match[1])}`;
+  }
+
+  return normalizeDateOnly(txt);
+}
 
   for (const sheetName of wb.SheetNames) {
     if (!/(elsz|elszam).*(20\d{2})/i.test(stripAccents(sheetName))) continue;
@@ -1008,41 +743,41 @@ async function readSpreadsheetRows(file) {
       if (!normalizedDate) continue;
 
       if (income > 0) {
-        result.push({
-          datum: normalizedDate,
-          tulajdonos: "",
-          lakas: "",
-          osszeg: Math.abs(income),
-          tipus: "befizetes",
-          jogcim: "Importált befizetés",
-          megjegyzes: reference
-        });
-      }
+  result.push({
+    datum: normalizedDate,
+    tulajdonos: "",
+    lakas: "",
+    osszeg: Math.abs(income),
+    tipus: "befizetes",
+    jogcim: "Importált befizetés",
+    megjegyzes: reference
+  });
+}
 
-      if (expense > 0) {
-        result.push({
-          datum: normalizedDate,
-          tulajdonos: "",
-          lakas: "",
-          osszeg: Math.abs(expense),
-          tipus: "kiadas",
-          jogcim: "Importált kiadás",
-          megjegyzes: reference
-        });
-      }
+if (expense > 0) {
+  result.push({
+    datum: normalizedDate,
+    tulajdonos: "",
+    lakas: "",
+    osszeg: Math.abs(expense),
+    tipus: "kiadas",
+    jogcim: "Importált kiadás",
+    megjegyzes: reference
+  });
+}
     }
   }
 
-  if (result.length) return result;
+  if (result.length) {
+    return result;
+  }
 
   const ws = wb.Sheets[wb.SheetNames[0]];
   return XLSX.utils.sheet_to_json(ws, { defval: "" });
 }
-
 function csvToObjects(text) {
   const lines = text.replace(/\r/g, "").split("\n").filter(Boolean);
   if (!lines.length) return [];
-
   const delim = lines[0].includes(";") ? ";" : ",";
   const headers = lines[0].split(delim).map(h => normalizeText(h));
 
@@ -1121,7 +856,6 @@ function render() {
                 <th>Lakás</th>
                 <th>Tulajdonos</th>
                 <th>Havi közös költség</th>
-                <th>Kiadási részesedés</th>
                 <th>Befizetve</th>
                 <th>Egyenleg</th>
               </tr>
@@ -1153,7 +887,6 @@ function render() {
                       onchange="app.setMonthlyFee(${apt.id}, this.value)"
                     />
                   </td>
-                  <td>${formatFt(apartmentExpenseShare(apt.id))}</td>
                   <td>${formatFt(apartmentPaid(apt.id))}</td>
                   <td class="${apartmentBalance(apt.id) >= 0 ? "positive" : "negative"}">
                     ${formatFt(apartmentBalance(apt.id))}
@@ -1162,38 +895,17 @@ function render() {
               `).join("")}
             </tbody>
           </table>
-          <div class="hint-text mt16">
-            Békéssy Klára havi közös költsége nem lakói befizetésként számolódik, hanem automatikus házpénztári jóváírásként.
-          </div>
         </section>
 
         <section id="paymentsSection" class="app-section card">
-          <h2>Új befizetés</h2>		  
-		  <div class="card">
-  <h2>Házpénztári korrekció / egyéb bevétel</h2>
-  <div class="form-grid two">
-    <label>
-      Tétel megnevezése
-      <input id="cashCorrectionTitle" type="text" placeholder="pl. Teszt kiadás visszavezetése" />
-    </label>
-    <label>
-      Összeg
-      <input id="cashCorrectionAmount" type="number" min="0" step="1" placeholder="0" />
-    </label>
-    <label class="full">
-      Megjegyzés
-      <input id="cashCorrectionNote" type="text" placeholder="opcionális" />
-    </label>
-  </div>
-  <button onclick="app.addCashCorrection()">Korrekciós bevétel rögzítése</button>
-</div>
+          <h2>Új befizetés</h2>
 
           <div class="form-grid">
             <div>
               <label>Lakás</label>
               <select id="paymentApartment" class="text-input full">
                 ${state.apartments.map(apt => `
-                  <option value="${apt.id}">${escapeHtml(apt.name)} – ${escapeHtml(apt.owner || "-")}</option>
+                  <option value="${apt.id}">${escapeHtml(apt.name)}</option>
                 `).join("")}
               </select>
             </div>
@@ -1232,13 +944,6 @@ function render() {
             </div>
 
             <div class="span-2">
-			<div>
-			<label>Érintett egységek</label>
-			<select id="expenseScope" class="text-input full">
-			<option value="apartments" selected>Csak lakások</option>
-			<option value="all">Minden egység</option>
-			<option value="garages">Csak garázsok</option>
-		</select>
               <label>Megjegyzés</label>
               <input id="expenseNote" class="text-input full" type="text" placeholder="opcionális" />
             </div>
@@ -1248,7 +953,7 @@ function render() {
         </section>
 
         <section id="importSection" class="app-section card">
-          <h2>Adatimport (XLSX)</h2>
+          <h2>Import</h2>
 
           <div class="form-grid">
             <div class="span-2">
@@ -1289,16 +994,16 @@ function render() {
                 </tr>
               ` : parsedImportRecords.map(item => `
                 <tr>
-                  <td>${item.mode === "expense" ? "Kiadás" : "Befizetés"}</td>
+                  <td>${item.mode === "payment" ? "Befizetés" : "Kiadás"}</td>
                   <td>${escapeHtml(item.createdAt)}</td>
                   <td>
-                    ${item.mode === "expense"
-                      ? `<strong>${escapeHtml(item.title)}</strong>${item.note ? ` – ${escapeHtml(item.note)}` : ""}`
-                      : `<strong>${escapeHtml(item.apartmentName)}</strong>${item.note ? ` – ${escapeHtml(item.note)}` : ""}`
+                    ${item.mode === "payment"
+                      ? `<strong>${escapeHtml(item.apartmentName)}</strong>${item.note ? ` – ${escapeHtml(item.note)}` : ""}`
+                      : `<strong>${escapeHtml(item.title)}</strong>${item.note ? ` – ${escapeHtml(item.note)}` : ""}`
                     }
                   </td>
-                  <td class="${item.mode === "expense" ? "negative" : "positive"}">
-                    ${item.mode === "expense" ? "-" : "+"} ${formatFt(item.amount)}
+                  <td class="${item.mode === "payment" ? "positive" : "negative"}">
+                    ${item.mode === "payment" ? "+" : "-"} ${formatFt(item.amount)}
                   </td>
                 </tr>
               `).join("")}
@@ -1355,12 +1060,38 @@ function render() {
         </section>
 
         <section id="settingsSection" class="app-section card">
-          <h2>Beállítások</h2>
+          <h2>Beállítások és titkos parancs</h2>
 
           <div class="form-row">
             <label>Nyitó készpénz</label>
-            <input id="openingCashInput" class="number-input" type="number" min="0" value="${Number(state.openingCash)}" />
+            <input
+              id="openingCashInput"
+              class="number-input"
+              type="number"
+              min="0"
+              value="${Number(state.openingCash)}"
+            />
             <button class="primary" onclick="app.saveOpeningCash()">Mentés</button>
+          </div>
+
+          <hr class="sep" />
+
+          <div>
+            <h3>Titkos parancs</h3>
+            <div class="inline-actions">
+              <input
+                id="secretCommand"
+                class="text-input"
+                type="password"
+                placeholder="titkos szó..."
+                autocomplete="new-password"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+              />
+              <button type="button" class="primary" onclick="app.checkEasterEgg()">Ellenőrzés</button>
+            </div>
+            <div id="easterResult" class="mt12"></div>
           </div>
 
           <hr class="sep" />
@@ -1370,7 +1101,7 @@ function render() {
 
             <div class="form-grid">
               <div class="span-2">
-                <label>Célmappa</label>
+                <label>Célmappa a Mac-en</label>
                 <input
                   class="text-input full"
                   type="text"
@@ -1398,6 +1129,7 @@ function render() {
 
               <div class="span-2 hint-text">
                 Aktuális hónap: <strong>${currentMonthKey}</strong><br>
+                Reporton megjelenő hónap: <strong>${escapeHtml(monthLabelHu(currentMonthKey))}</strong><br>
                 Utoljára legenerált hónap: <strong>${escapeHtml(state.reportSettings.lastGeneratedMonth || "még nincs")}</strong>
               </div>
 
@@ -1418,59 +1150,352 @@ function render() {
     </footer>
   </div>
 
+  <div id="signatureOverlay">
+    <div id="signatureBox">
+      <div id="signatureTitle">🎭 Easter Egg</div>
+      <div id="signatureText">Created by Deme Gábor © 2026</div>
+      <button id="signatureClose" class="primary">Bezárás</button>
+    </div>
+  </div>
+
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; background: #f3f5f7; color: #1f2937; font-family: Arial, sans-serif; }
-    .topbar { background: #1f2937; color: white; padding: 18px 22px; box-shadow: 0 2px 12px rgba(0,0,0,0.12); }
-    .topbar-inner { display: flex; align-items: center; gap: 14px; }
-    .topbar-icon { width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg, #f59e0b, #fbbf24); display: flex; align-items: center; justify-content: center; font-size: 28px; box-shadow: 0 6px 18px rgba(0,0,0,0.20); }
-    .topbar-title { font-size: 24px; font-weight: bold; line-height: 1.1; }
-    .topbar-subtitle { margin-top: 4px; font-size: 13px; color: #d1d5db; }
-    .layout { display: flex; min-height: calc(100vh - 88px); }
-    .sidebar { width: 220px; background: #374151; color: white; padding: 20px; }
-    .menu { display: block; width: 100%; margin-bottom: 10px; padding: 11px 12px; border: none; background: #4b5563; color: white; cursor: pointer; text-align: left; border-radius: 10px; transition: 0.15s ease; }
-    .menu:hover { background: #6b7280; }
-    .menu.active { background: #f59e0b; color: #111827; font-weight: bold; }
-    .content { flex: 1; padding: 24px; }
-    .app-section { display: none; }
-    .app-section.active { display: block; }
-    .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); margin-bottom: 20px; }
-    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
-    .stat { background: #f8fafc; border-radius: 10px; padding: 16px; }
-    .stat-title { color: #6b7280; font-size: 14px; margin-bottom: 8px; }
-    .stat-value { font-size: 28px; font-weight: bold; }
-    .highlight { color: #0f766e; }
-    .table { width: 100%; border-collapse: collapse; }
-    .table th, .table td { padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; }
-    .text-input, .number-input, select { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; background: white; }
-    .full { width: 100%; }
-    .mt16 { margin-top: 16px; }
-    .form-row { display: grid; grid-template-columns: 1fr 160px 120px; gap: 10px; align-items: end; }
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .report-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-    .checkbox-row { display: flex; align-items: center; gap: 10px; }
-    .checkbox-label { margin: 0; color: #1f2937; }
-    .hint-text { color: #475569; font-size: 13px; line-height: 1.5; background: #f8fafc; border-radius: 10px; padding: 10px 12px; }
-    .status-box { padding: 10px 12px; border-radius: 10px; font-size: 14px; font-weight: bold; }
-    .status-box.success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
-    .status-box.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-    .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
-    .archived-badge { background: #eef2f7; color: #475569; font-size: 13px; padding: 8px 12px; border-radius: 999px; font-weight: bold; }
-    .archived-panel { margin-top: 16px; }
-    .archived-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
-    .archived-row td { opacity: 0.82; }
+    body { margin:0; background:#f3f5f7; color:#1f2937; font-family: Arial, sans-serif; }
+
+    .topbar {
+      background:#1f2937;
+      color:white;
+      padding:18px 22px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+    }
+
+    .topbar-inner {
+      display:flex;
+      align-items:center;
+      gap:14px;
+    }
+
+    .topbar-icon {
+      width:52px;
+      height:52px;
+      border-radius:14px;
+      background: linear-gradient(135deg, #f59e0b, #fbbf24);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:28px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.20);
+    }
+
+    .topbar-title {
+      font-size:24px;
+      font-weight:bold;
+      line-height:1.1;
+    }
+
+    .topbar-subtitle {
+      margin-top:4px;
+      font-size:13px;
+      color:#d1d5db;
+    }
+
+    .layout {
+      display:flex;
+      min-height:calc(100vh - 88px);
+    }
+
+    .sidebar {
+      width:220px;
+      background:#374151;
+      color:white;
+      padding:20px;
+    }
+
+    .menu {
+      display:block;
+      width:100%;
+      margin-bottom:10px;
+      padding:11px 12px;
+      border:none;
+      background:#4b5563;
+      color:white;
+      cursor:pointer;
+      text-align:left;
+      border-radius:10px;
+      transition:0.15s ease;
+    }
+
+    .menu:hover { background:#6b7280; }
+
+    .menu.active {
+      background:#f59e0b;
+      color:#111827;
+      font-weight:bold;
+    }
+
+    .content {
+      flex:1;
+      padding:24px;
+    }
+
+    .app-section {
+      display:none;
+    }
+
+    .app-section.active {
+      display:block;
+    }
+
+    .card {
+      background:white;
+      padding:20px;
+      border-radius:12px;
+      box-shadow:0 2px 10px rgba(0,0,0,0.08);
+      margin-bottom:20px;
+    }
+
+    .stats {
+      display:grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap:16px;
+    }
+
+    .stat {
+      background:#f8fafc;
+      border-radius:10px;
+      padding:16px;
+    }
+
+    .stat-title {
+      color:#6b7280;
+      font-size:14px;
+      margin-bottom:8px;
+    }
+
+    .stat-value {
+      font-size:28px;
+      font-weight:bold;
+    }
+
+    .highlight { color:#0f766e; }
+
+    .table {
+      width:100%;
+      border-collapse: collapse;
+    }
+
+    .table th, .table td {
+      padding:10px;
+      border-bottom:1px solid #e5e7eb;
+      text-align:left;
+      vertical-align:top;
+    }
+
+    .text-input, .number-input, select {
+      width:100%;
+      padding:8px 10px;
+      border:1px solid #cbd5e1;
+      border-radius:8px;
+      font-size:14px;
+      background:white;
+    }
+
+    .full { width:100%; }
+    .mt12 { margin-top:12px; }
+    .mt16 { margin-top:16px; }
+
+    .form-row {
+      display:grid;
+      grid-template-columns: 1fr 160px 120px;
+      gap:10px;
+      align-items:end;
+    }
+
+    .form-grid {
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:12px;
+    }
+
+    .inline-actions {
+      display:grid;
+      grid-template-columns: 1fr auto;
+      gap:10px;
+      align-items:center;
+    }
+
+    .report-actions {
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .checkbox-row {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-top:2px;
+    }
+
+    .checkbox-row input {
+      width:auto;
+      margin:0;
+    }
+
+    .checkbox-label {
+      margin:0;
+      color:#1f2937;
+    }
+
+    .hint-text {
+      color:#475569;
+      font-size:13px;
+      line-height:1.5;
+      background:#f8fafc;
+      border-radius:10px;
+      padding:10px 12px;
+    }
+
+    .status-box {
+      padding:10px 12px;
+      border-radius:10px;
+      font-size:14px;
+      font-weight:bold;
+    }
+
+    .status-box.success {
+      background:#ecfdf5;
+      color:#065f46;
+      border:1px solid #a7f3d0;
+    }
+
+    .status-box.error {
+      background:#fef2f2;
+      color:#991b1b;
+      border:1px solid #fecaca;
+    }
+
+    .section-head {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      margin-bottom:10px;
+    }
+
+    .archived-badge {
+      background:#eef2f7;
+      color:#475569;
+      font-size:13px;
+      padding:8px 12px;
+      border-radius:999px;
+      font-weight:bold;
+    }
+
+    .archived-panel {
+      margin-top:16px;
+    }
+
+    .archived-box {
+      background:#f8fafc;
+      border:1px solid #e2e8f0;
+      border-radius:12px;
+      padding:16px;
+    }
+
+    .archived-row td {
+      opacity:0.82;
+    }
+
     .span-2 { grid-column: span 2; }
-    label { display: block; margin-bottom: 6px; font-size: 14px; color: #475569; }
-    .primary { padding: 10px 14px; border: none; background: #1f2937; color: white; border-radius: 8px; cursor: pointer; }
-    .primary:hover { background: #111827; }
-    .secondary { padding: 10px 14px; border: none; background: #64748b; color: white; border-radius: 8px; cursor: pointer; }
-    .secondary:hover { background: #475569; }
-    .danger { padding: 7px 10px; border: none; background: #991b1b; color: white; border-radius: 8px; cursor: pointer; }
-    .danger:hover { background: #7f1d1d; }
-    .positive { color: #065f46; font-weight: bold; }
-    .negative { color: #991b1b; font-weight: bold; }
-    .sep { border: none; border-top: 1px solid #e5e7eb; margin: 18px 0; }
-    .footer { position: fixed; right: 18px; bottom: 10px; font-size: 12px; color: #6b7280; }
+
+    label {
+      display:block;
+      margin-bottom:6px;
+      font-size:14px;
+      color:#475569;
+    }
+
+    .primary {
+      padding:10px 14px;
+      border:none;
+      background:#1f2937;
+      color:white;
+      border-radius:8px;
+      cursor:pointer;
+    }
+
+    .primary:hover { background:#111827; }
+
+    .secondary {
+      padding:10px 14px;
+      border:none;
+      background:#64748b;
+      color:white;
+      border-radius:8px;
+      cursor:pointer;
+    }
+
+    .secondary:hover { background:#475569; }
+
+    .danger {
+      padding:7px 10px;
+      border:none;
+      background:#991b1b;
+      color:white;
+      border-radius:8px;
+      cursor:pointer;
+    }
+
+    .danger:hover { background:#7f1d1d; }
+
+    .positive { color:#065f46; font-weight:bold; }
+    .negative { color:#991b1b; font-weight:bold; }
+
+    .sep {
+      border:none;
+      border-top:1px solid #e5e7eb;
+      margin:18px 0;
+    }
+
+    .footer {
+      position:fixed;
+      right:18px;
+      bottom:10px;
+      font-size:12px;
+      color:#6b7280;
+    }
+
+    #signatureOverlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.72);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+
+    #signatureBox {
+      background: white;
+      padding: 30px 36px;
+      border-radius: 16px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+      text-align: center;
+      max-width: 520px;
+    }
+
+    #signatureTitle {
+      font-size: 30px;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+
+    #signatureText {
+      font-size: 20px;
+      color: #374151;
+      margin-bottom: 16px;
+    }
 
     #curtainOverlay {
       position: fixed;
@@ -1480,16 +1505,34 @@ function render() {
       overflow: hidden;
       background: #12070a;
     }
+
     .curtain {
       position: absolute;
       top: 0;
       width: 50%;
       height: 100%;
-      background: repeating-linear-gradient(90deg, #5b0f17 0px, #7d1621 18px, #8f1c29 36px, #6d121c 54px);
+      background:
+        repeating-linear-gradient(
+          90deg,
+          #5b0f17 0px,
+          #7d1621 18px,
+          #8f1c29 36px,
+          #6d121c 54px
+        );
       box-shadow: inset -10px 0 20px rgba(0,0,0,0.25);
     }
-    .curtain.left { left: 0; animation: curtainLeftOpen 2.2s ease-in-out forwards; }
-    .curtain.right { right: 0; animation: curtainRightOpen 2.2s ease-in-out forwards; box-shadow: inset 10px 0 20px rgba(0,0,0,0.25); }
+
+    .curtain.left {
+      left: 0;
+      animation: curtainLeftOpen 2.2s ease-in-out forwards;
+    }
+
+    .curtain.right {
+      right: 0;
+      animation: curtainRightOpen 2.2s ease-in-out forwards;
+      box-shadow: inset 10px 0 20px rgba(0,0,0,0.25);
+    }
+
     #curtainTitle {
       position: absolute;
       inset: 0;
@@ -1507,10 +1550,12 @@ function render() {
       0% { transform: translateX(0); }
       100% { transform: translateX(-100%); }
     }
+
     @keyframes curtainRightOpen {
       0% { transform: translateX(0); }
       100% { transform: translateX(100%); }
     }
+
     @keyframes titleFade {
       0% { opacity: 1; }
       70% { opacity: 1; }
@@ -1518,23 +1563,70 @@ function render() {
     }
 
     @media (max-width: 1200px) {
-      .stats { grid-template-columns: repeat(2, 1fr); }
+      .stats {
+        grid-template-columns: repeat(2, 1fr);
+      }
     }
 
     @media (max-width: 900px) {
-      .layout { flex-direction: column; }
-      .sidebar { width: 100%; }
-      .form-grid, .form-row { grid-template-columns: 1fr; }
-      .span-2 { grid-column: span 1; }
-      .footer { position: static; padding: 0 24px 16px; }
+      .layout {
+        flex-direction: column;
+      }
+
+      .sidebar {
+        width: 100%;
+      }
+
+      .form-grid,
+      .form-row {
+        grid-template-columns: 1fr;
+      }
+
+      .span-2 {
+        grid-column: span 1;
+      }
+
+      .footer {
+        position: static;
+        padding: 0 24px 16px;
+      }
     }
   </style>
   `;
 
+  attachEvents();
   attachMenuHandlers();
   handleCurtain();
   queueAutoMonthlyCheck();
   applyActiveSection(getActiveSection());
+}
+
+function attachEvents() {
+  const signatureOverlay = document.getElementById("signatureOverlay");
+  const signatureClose = document.getElementById("signatureClose");
+
+  if (signatureClose) {
+    signatureClose.addEventListener("click", function () {
+      signatureOverlay.style.display = "none";
+    });
+  }
+
+  if (signatureOverlay) {
+    signatureOverlay.addEventListener("click", function (event) {
+      if (event.target === signatureOverlay) {
+        signatureOverlay.style.display = "none";
+      }
+    });
+  }
+
+  const secretInput = document.getElementById("secretCommand");
+  if (secretInput) {
+    secretInput.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        app.checkEasterEgg();
+      }
+    });
+  }
 }
 
 function attachMenuHandlers() {
@@ -1569,8 +1661,15 @@ function applyActiveSection(sectionId) {
     button.classList.remove("active");
   });
 
-  document.getElementById(finalSectionId)?.classList.add("active");
-  document.querySelector(`.menu[data-section="${finalSectionId}"]`)?.classList.add("active");
+  const activeSection = document.getElementById(finalSectionId);
+  if (activeSection) {
+    activeSection.classList.add("active");
+  }
+
+  const activeButton = document.querySelector(`.menu[data-section="${finalSectionId}"]`);
+  if (activeButton) {
+    activeButton.classList.add("active");
+  }
 }
 
 function handleCurtain() {
@@ -1606,7 +1705,7 @@ const app = {
   renameApartment(id, value) {
     const apt = state.apartments.find(a => Number(a.id) === Number(id));
     if (!apt) return;
-    apt.name = normalizeText(value) || `Lakás ${id}`;
+    apt.name = value.trim() || `Lakás ${id}`;
     saveState();
     render();
   },
@@ -1629,7 +1728,7 @@ const app = {
 
   saveOpeningCash() {
     const input = document.getElementById("openingCashInput");
-    state.openingCash = Math.max(0, Number(input?.value || 0));
+    state.openingCash = Math.max(0, Number(input.value || 0));
     saveState();
     render();
   },
@@ -1645,23 +1744,18 @@ const app = {
     state.uiSettings.showArchivedEntries = !state.uiSettings.showArchivedEntries;
     saveState();
     render();
-    applyActiveSection("ledgerSection");
-    setActiveSection("ledgerSection");
   },
 
-    async chooseReportFolder() {
+  async chooseReportFolder() {
     clearReportStatus();
 
     try {
-      const dialogApi =
-        window.__TAURI__?.dialog ||
-        window.__TAURI__?.plugin?.dialog;
-
-      if (!dialogApi || typeof dialogApi.open !== "function") {
+      const dialog = window.__TAURI__?.dialog;
+      if (!dialog || typeof dialog.open !== "function") {
         throw new Error("A Tauri dialog API nem érhető el.");
       }
 
-      const selected = await dialogApi.open({
+      const selected = await dialog.open({
         directory: true,
         multiple: false,
         title: "Havi report mappa kiválasztása"
@@ -1671,7 +1765,6 @@ const app = {
 
       state.reportSettings.targetFolder = String(selected);
       saveState();
-      render();
       setReportStatus("A report célmappa elmentve.", "success");
     } catch (error) {
       setReportStatus(`Mappaválasztási hiba: ${error.message || error}`, "error");
@@ -1738,14 +1831,12 @@ const app = {
         exportedAt: nowStamp(),
         exportedAtIso: nowIso(),
         app: "Társasház Óvoda utca 6/a házpénztár",
-        version: "V3.0",
+        version: "V2.0",
         data: state
       };
 
       const fileName = `hazpenztar_backup_${monthKeyFromDate(new Date())}_${pad2(new Date().getDate())}.json`;
-      const blob = new Blob([JSON.stringify(backup, null, 2)], {
-        type: "application/json;charset=utf-8"
-      });
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
 
@@ -1766,23 +1857,22 @@ const app = {
   },
 
   addPayment() {
-    const apartmentId = Number(document.getElementById("paymentApartment")?.value);
-    const amount = Number(document.getElementById("paymentAmount")?.value || 0);
-    const monthLabel = normalizeText(document.getElementById("paymentMonth")?.value || "");
-    const note = normalizeText(document.getElementById("paymentNote")?.value || "");
+    const apartmentId = Number(document.getElementById("paymentApartment").value);
+    const amount = Number(document.getElementById("paymentAmount").value || 0);
+    const monthLabel = document.getElementById("paymentMonth").value.trim();
+    const note = document.getElementById("paymentNote").value.trim();
 
     if (!amount || amount <= 0) {
       alert("Adj meg érvényes befizetési összeget.");
       return;
     }
 
-    const apt = state.apartments.find(a => Number(a.id) === Number(apartmentId));
+    const apt = state.apartments.find(a => Number(a.id) === apartmentId);
     if (!apt) return;
 
     state.entries.push({
       id: crypto.randomUUID(),
       type: "payment",
-	  type: "cash_in",
       apartmentId,
       apartmentName: apt.name,
       amount,
@@ -1795,15 +1885,13 @@ const app = {
 
     saveState();
     render();
-    applyActiveSection("paymentsSection");
     setActiveSection("paymentsSection");
   },
 
   addExpense() {
-    const title = normalizeText(document.getElementById("expenseTitle")?.value || "");
-	const amount = Number(document.getElementById("expenseAmount")?.value || 0);
-	const note = normalizeText(document.getElementById("expenseNote")?.value || "");
-	const scope = document.getElementById("expenseScope")?.value || "all";
+    const title = document.getElementById("expenseTitle").value.trim();
+    const amount = Number(document.getElementById("expenseAmount").value || 0);
+    const note = document.getElementById("expenseNote").value.trim();
 
     if (!title) {
       alert("Adj meg kiadási tételnevet.");
@@ -1821,7 +1909,6 @@ const app = {
       title,
       amount,
       note,
-	  scope,
       archived: false,
       createdAt: nowStamp(),
       createdAtIso: nowIso()
@@ -1829,49 +1916,17 @@ const app = {
 
     saveState();
     render();
-    applyActiveSection("expensesSection");
     setActiveSection("expensesSection");
   },
-  addCashCorrection() {
-  const title = normalizeText(document.getElementById("cashCorrectionTitle")?.value || "");
-  const amount = Number(document.getElementById("cashCorrectionAmount")?.value || 0);
-  const note = normalizeText(document.getElementById("cashCorrectionNote")?.value || "");
-
-  if (!title) {
-    alert("Adj meg bevételi tételnevet.");
-    return;
-  }
-
-  if (!amount || amount <= 0) {
-    alert("Adj meg érvényes összeget.");
-    return;
-  }
-
-  state.entries.push({
-    id: crypto.randomUUID(),
-    type: "cash_in",
-    title,
-    amount,
-    note,
-    archived: false,
-    createdAt: nowStamp(),
-    createdAtIso: nowIso()
-  });
-
-  saveState();
-  render();
-  applyActiveSection("cashbookSection");
-  setActiveSection("cashbookSection");
-},
 
   async previewImport() {
     clearImportStatus();
 
     try {
-      const fileInput = document.getElementById("importFile");
-      const file = fileInput?.files?.[0];
+     const fileInput = document.getElementById("importFile");
+const file = fileInput?.files?.[0];
 
-      lastImportFileName = file ? file.name : "";
+lastImportFileName = file ? file.name : "";
 
       if (!file) {
         throw new Error("Válassz ki egy import fájlt.");
@@ -1889,55 +1944,23 @@ const app = {
 
   clearImportPreview() {
     parsedImportRecords = [];
-    lastImportFileName = "";
     clearImportStatus();
     render();
-    applyActiveSection("importSection");
     setActiveSection("importSection");
   },
 
-	commitImport() {
-	exportImportSafetyBackup();  // ← EZ AZ AUTOMATIKUS BACKUP
+  commitImport() {
+    if (!parsedImportRecords.length) {
+      setImportStatus("Nincs importálható előnézeti adat.", "error");
+      return;
+    }
+	
+	const backupFileName = exportImportSafetyBackup();
 
-	if (!parsedImportRecords.length) {
-		setImportStatus("Nincs importálható előnézeti adat.", "error");
-		return;
-  }
-    const backupFileName = exportImportSafetyBackup();
     const existing = new Set(state.entries.map(entryFingerprint));
     let added = 0;
 
     for (const item of parsedImportRecords) {
-      if (item.mode === "payment-split") {
-        const share = Number(item.amount || 0) / item.apartmentIds.length;
-
-        for (const apartmentId of item.apartmentIds) {
-          const apt = state.apartments.find(a => Number(a.id) === Number(apartmentId));
-
-          const newEntry = {
-            id: crypto.randomUUID(),
-            type: "payment",
-            apartmentId,
-            apartmentName: apt ? apt.name : `Lakás ${apartmentId}`,
-            amount: share,
-            monthLabel: item.monthLabel,
-            note: `${item.note || ""}${item.note ? " | " : ""}megosztott import`,
-            archived: false,
-            createdAt: item.createdAt,
-            createdAtIso: item.createdAtIso
-          };
-
-          const fp = entryFingerprint(newEntry);
-          if (!existing.has(fp)) {
-            state.entries.push(newEntry);
-            existing.add(fp);
-            added++;
-          }
-        }
-
-        continue;
-      }
-
       let newEntry;
 
       if (item.mode === "payment") {
@@ -1978,7 +2001,6 @@ const app = {
     parsedImportRecords = [];
     setImportStatus(`Import kész. Új tételek: ${added} db. Backup: ${backupFileName}`, "success");
     render();
-    applyActiveSection("importSection");
     setActiveSection("importSection");
   },
 
@@ -1991,7 +2013,6 @@ const app = {
     entry.archived = true;
     saveState();
     render();
-    applyActiveSection("ledgerSection");
     setActiveSection("ledgerSection");
   },
 
@@ -2002,8 +2023,36 @@ const app = {
     entry.archived = false;
     saveState();
     render();
-    applyActiveSection("ledgerSection");
     setActiveSection("ledgerSection");
+  },
+
+  checkEasterEgg() {
+    const input = document.getElementById("secretCommand");
+    const result = document.getElementById("easterResult");
+    const signatureOverlay = document.getElementById("signatureOverlay");
+
+    if (!input || !result || !signatureOverlay) return;
+
+    const value = input.value.trim().toLowerCase();
+
+    if (value === "deme") {
+      result.textContent = "Talált, süllyedt. 😉";
+      result.className = "positive mt12";
+      signatureOverlay.style.display = "flex";
+      input.value = "";
+    } else if (!value) {
+      result.textContent = "Írj be valamit.";
+      result.className = "negative mt12";
+    } else {
+      result.textContent = "Ez most még nem a helyes varázsszó.";
+      result.className = "negative mt12";
+      input.value = "";
+    }
+  },
+
+  replayCurtain() {
+    localStorage.removeItem("curtainPlayed");
+    render();
   }
 };
 
@@ -2012,85 +2061,4 @@ window.app = app;
 console.log("Created by Deme Gábor © 2026");
 window.__deme_signature = "Created by Deme Gábor © 2026";
 
-await hydrateInitialStateIfEmpty();
 render();
-
-// 🎭 EASTER EGG – DEME
-(function () {
-  let typed = "";
-  const secret = "deme";
-
-  window.addEventListener("keydown", (e) => {
-    if (e.key.length === 1) {
-      typed += e.key.toLowerCase();
-      if (typed.length > secret.length) {
-        typed = typed.slice(-secret.length);
-      }
-
-      if (typed === secret) {
-        typed = "";
-        showDemeEasterEgg();
-      }
-    }
-  });
-
-  function showDemeEasterEgg() {
-    if (document.getElementById("deme-easter-egg")) return;
-
-    const overlay = document.createElement("div");
-    overlay.id = "deme-easter-egg";
-    overlay.style.position = "fixed";
-    overlay.style.inset = "0";
-    overlay.style.background = "rgba(0,0,0,0.82)";
-    overlay.style.zIndex = "999999";
-    overlay.style.display = "flex";
-    overlay.style.alignItems = "center";
-    overlay.style.justifyContent = "center";
-    overlay.style.flexDirection = "column";
-    overlay.style.fontFamily = "Arial, sans-serif";
-    overlay.style.color = "#ffffff";
-
-    const masks = document.createElement("div");
-    masks.textContent = "🎭";
-    masks.style.position = "absolute";
-    masks.style.top = "18px";
-    masks.style.left = "22px";
-    masks.style.fontSize = "28px";
-    masks.style.filter = "drop-shadow(0 0 8px rgba(255,255,255,0.35))";
-
-    const title = document.createElement("div");
-    title.innerHTML = "Created by Deme Gábor &copy; 2026";
-    title.style.fontSize = "32px";
-    title.style.fontWeight = "700";
-    title.style.textAlign = "center";
-    title.style.marginBottom = "20px";
-    title.style.letterSpacing = "0.5px";
-
-    const closeBtn = document.createElement("button");
-    closeBtn.textContent = "Bezárás";
-    closeBtn.style.padding = "12px 28px";
-    closeBtn.style.fontSize = "18px";
-    closeBtn.style.fontWeight = "700";
-    closeBtn.style.border = "none";
-    closeBtn.style.borderRadius = "10px";
-    closeBtn.style.cursor = "pointer";
-    closeBtn.style.background = "#f3c300";
-    closeBtn.style.color = "#111111";
-    closeBtn.style.boxShadow = "0 6px 20px rgba(0,0,0,0.35)";
-
-    closeBtn.addEventListener("click", () => {
-      overlay.remove();
-    });
-
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) {
-        overlay.remove();
-      }
-    });
-
-    overlay.appendChild(masks);
-    overlay.appendChild(title);
-    overlay.appendChild(closeBtn);
-    document.body.appendChild(overlay);
-  }
-})();
